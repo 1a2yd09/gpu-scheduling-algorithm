@@ -14,13 +14,13 @@ job_orders = list(range(1, job_nums + 1))
 job_gpus = list(range(1, gpu_nums + 1))
 job_names = ['job', 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']
 
-individual_nums = 50
+individual_nums = 10
 
 
 def init_individual_info():
     # 这里我就保证了每个任务的GPU数量至少为1，但是后续按比例向下取整的时候还是会出现为零的情况，
     # 我只是保证了在初始化的种群中不会出现GPU数量零，但是后续演化过程中还是会出现零。
-    # TODO:后续演化过程中也应该排除数量为零的情况
+    # TODO:如果后续演化过程中仍出现为零的情况，直接舍弃该方案
     return {'orders': [random.choice(job_orders) for _ in range(job_nums)],
             'gpus': [random.choice(job_gpus) for _ in range(job_nums)]}
 
@@ -28,7 +28,7 @@ def init_individual_info():
 # 交叉:
 def cross_over(group):
     cg = copy.deepcopy(group)
-    cross_orders = random.sample(list(range(individual_nums)), 50)
+    cross_orders = random.sample(list(range(individual_nums)), 10)
     # print(cross_orders)
     cross_couples = [[cross_orders[i], cross_orders[i + 1]] for i in range(0, len(cross_orders), 2)]
     # print(cross_couples)
@@ -107,13 +107,14 @@ def computing_fitness(group):
             s = sum([x[2] for x in z[i]])
             if s != gpu_nums:
                 # 当按照向下取整的规则分配GPU数量时，会出现总和达不到总资源数的情况，
-                # 解决方法是将剩余的GPU数量每次拿出1个分配给分组当中GPU最少的JOB，
-                # 该方法主要是为了防止出现GPU数量为零的JOB，实际上在解决这个问题后，可以考虑将多余的GPU分配给时间较长的JOB。
-                # TODO:将GPU数量为零的问题解决后，考虑把多余的GPU分配给时间较长的JOB，或者仍随机分配。
+                # 解决方法是将剩余的GPU数量每次拿出1个随机分配给分组当中的JOB，
+                # 这里的解决方法只能解决总和达不到总资源数的情况，至于存在资源数为零的JOB，放到后续处理，
+                # 总之这里先按比例再按随机的方式是一种较为公平的方式。
                 remain_gpu_nums = gpu_nums - s
                 while remain_gpu_nums:
                     remain_gpu_nums -= 1
-                    index = find_min_gpu_num_index(z[i])
+                    # index = find_min_gpu_num_index(z[i])
+                    index = random.choice(range(len(z[i])))
                     z[i][index][2] += 1
             s = sum([x[2] for x in z[i]])
             if s != gpu_nums:
@@ -135,11 +136,14 @@ def computing_fitness(group):
                 cursor.execute('SELECT training_time FROM training_times WHERE job_name=%s AND gpu_num=%s',
                                [job_names[job_num], job_gpu])
                 values = cursor.fetchone()
-                # print(values)
-                if values[0] > group_time:
+                # 经过上述分配方案如果仍出现资源数为零的JOB，那么分组的时间直接为无穷大:
+                if values is None:
+                    group_time = float('inf')
+                elif values[0] > group_time:
                     group_time = values[0]
             training_time += group_time
         individual['fitness'] = training_time
+        individual['allocation_plan'] = z
 
 
 # TODO:利用轮盘选择法进行选择-复制
@@ -164,7 +168,7 @@ def selection(group):
     # print(random_number)
     # individual_select = [bisect.bisect_left(accumulation_choice, random_number[i]) for i in range(individual_nums)]
     # print(individual_select)
-    return [group[bisect.bisect_left(accumulation_choice, random_number[i])] for i in range(individual_nums)]
+    return [copy.deepcopy(group[bisect.bisect_left(accumulation_choice, random_number[i])]) for i in range(individual_nums)]
 
 
 # TODO:从原始种群和变化后的种群中选择出完成时间最少的前individual_nums个个体组成新种群，使用这个新种群继续进行下一轮遗传演变
@@ -196,7 +200,7 @@ for _ in range(1000):
     new_group = preferential_admission(new_group, after_group)
     print('=' * 100)
 
-# 6912/23471
+# 4205(遗传)/4221(遗传次优)/6912(串行)/23471(并行)
 print(new_group)
 
 cursor.close()
