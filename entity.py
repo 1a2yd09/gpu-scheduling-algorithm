@@ -15,7 +15,7 @@ class Job:
 @dataclass
 class Individual:
     """
-    种群个体，包含调度方案、完成时间等信息。
+    种群个体，包含调度方案以及该调度方案的总完成时间等信息。
     """
     orders: List[int]
     gpus: List[int]
