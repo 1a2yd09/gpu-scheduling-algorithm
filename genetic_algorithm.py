@@ -134,7 +134,7 @@ def cross_over(group: List[Individual]):
     for cross_couple in cross_couples:
         fos, fgs = group[cross_couple[0]].orders, group[cross_couple[0]].gpus
         sos, sgs = group[cross_couple[1]].orders, group[cross_couple[1]].gpus
-        # TODO:是否允许两个个体的全部基因编码都进行交换，即完全不保留自身的编码。
+
         cross_point = random.choice(list(range(1, job_num)))
         fos, sos = fos[:cross_point] + sos[cross_point:], sos[:cross_point] + fos[cross_point:]
         cross_point = random.choice(list(range(1, job_num)))
@@ -157,7 +157,7 @@ def mutation_process(group: List[Individual], job_orders: List[int], job_gpus: L
     def mutation(x: int, cl: List[int]) -> int:
         """
         该函数保证基因变异，不会变异回原来的选项，具体操作就是从可用选项当中去除当前选项，然后随机获得另外一个选项。
-        注意remove操作会原地修改数组，应该传入一个原始数组的拷贝数组。
+        注意remove操作会原地修改数组，此处应该传入一个原始数组的拷贝数组。
 
         :param x: 移除选项。
         :param cl: 可用选项数组的拷贝。

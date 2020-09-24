@@ -1,6 +1,7 @@
 from typing import List, Dict
 
 import mysql.connector
+import configparser
 
 
 def obtaining_training_data(job_names: List[str], job_gpus: List[int]) -> Dict[str, Dict[int, int]]:
@@ -11,7 +12,13 @@ def obtaining_training_data(job_names: List[str], job_gpus: List[int]) -> Dict[s
     :param job_gpus: JOB可用的GPU数量。
     :return: 返回一个可以根据JOB名称以及GPU数量来获取在指定GPU数量下JOB所需训练时间的字典。
     """
-    conn = mysql.connector.connect(user='root', password='admin', database='learn_python')
+
+    cp = configparser.ConfigParser()
+    cp.read('./database_config.ini', encoding='utf-8')
+
+    conn = mysql.connector.connect(user=cp['debug']['user'],
+                                   password=cp['debug']['password'],
+                                   database=cp['debug']['database'])
     cursor = conn.cursor()
 
     jobs_training_time = {}
