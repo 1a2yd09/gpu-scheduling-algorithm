@@ -2,31 +2,35 @@ import random
 import itertools
 import bisect
 import copy
-import math
 from typing import List, Dict
 
 from entity import Individual, Job
 
 
-def init_individual(job_nums: int, job_orders: List[int], job_gpus: List[int]) -> Individual:
+def init_individual(job_nums: int, job_orders: List[int]) -> Individual:
     """
     随机初始化一个个体的调度方案。
 
     :param job_nums: JOB数量。
     :param job_orders: JOB可能的顺序数组。
-    :param job_gpus: JOB可用的GPU数量数组。
     :return: 随机初始化的个体。
     """
-    return Individual([random.choice(job_orders) for _ in range(job_nums)],
-                      [random.choice(job_gpus) for _ in range(job_nums)])
+    return Individual([random.choice(job_orders) for _ in range(job_nums)])
 
 
 def calculation_process(job_names: List[str],
                         gpu_nums: int,
                         group: List[Individual],
-                        training_data: Dict[str, Dict[int, int]]):
+                        training_data: Dict[str, Dict[int, Dict]]):
     """
     计算个体当中的“实际”调度方案以及对应的完成时间。
+    1.首先为每个JOB分配至少一个GPU，然后将剩余的GPU数量逐一分配给当前完成时间最长的JOB。
+    2.然后考虑分组当中每个JOB距离最大完成时间的剩余时间片，将这些时间片依次分配给后续分组当中完成时间从大到小的JOB上。
+    首先获取这个时间片对应的GPU数量，然后获取后续JOB在这个GPU数量下的完成时间，将其除以对应的epoch数量，得到完成一个epoch所需的时间，
+    然后用时间片除以这个时间得到对应的epoch数量，就表示我们利用这一段时间片来训练这个JOB，这样后续JOB的工作量需要扣除这一部分epoch数量，
+    重新去计算它的完成时间，那我们数据库里应该存的是epoch数量和一个epoch的时间，这样既可以得到完成时间，也能够快速计算epoch数量。
+    如果说我们刚好利用这一段时间片训练完了一个JOB，那么后续分组当中就可以把该JOB的GPU数量继续按照之前的规则分配给其它JOB。
+    重新计算完成时间。
 
     :param job_names: JOB名称数组。
     :param gpu_nums: 总资源数。
@@ -36,42 +40,77 @@ def calculation_process(job_names: List[str],
     """
     for individual in group:
         job_list = []
+        individual.gpus = [1] * len(job_names)
         # 将JOB名称和调度方案进行整合，[JOB名称, JOB顺序, JOB使用的GPU数量]:
         for z in zip(job_names, individual.orders, individual.gpus):
-            job_list.append(Job(z[0], z[1], z[2]))
+            job_list.append(Job(z[0],
+                                z[1],
+                                z[2],
+                                training_data[z[0]][1]['epoch_num'],
+                                training_data[z[0]][1]['epoch_time']))
         # 将JOB对象按照顺序进行排序，然后按照顺序进行分组，即相同顺序的JOB为一组:
-        job_list = sorted(job_list, key=lambda job: job.order)
-        job_group_list = [tuple(g) for k, g in itertools.groupby(job_list, key=lambda job: job.order)]
-        # 将随机出来的GPU数量组合，按比例进行实际分配，如果出现总和不为总资源数的情况，则将剩余的GPU数量随机给到任一JOB:
+        job_list = sorted(job_list, key=lambda j: j.order)
+        job_group_list = [list(g) for k, g in itertools.groupby(job_list, key=lambda j: j.order)]
+        # 将剩余的GPU数量逐一分配给当前完成时间最长的JOB:
         for job_group in job_group_list:
-            # 计算当前分组的GPU总和:
-            current_group_all_gpu = sum([job.gpu_num for job in job_group])
-            # 按比例并向下取整得到当前分组中每个JOB的实际分配GPU数量:
+            # 获取剩余的GPU数量:
+            remain_gpu_nums = gpu_nums - len(job_group)
+            # 逐一分配给当前完成时间最长的JOB:
+            while remain_gpu_nums:
+                job_group.sort(key=lambda j: j.epoch_num * j.epoch_time)
+                job = job_group[-1]
+                job.gpu_num += 1
+                job.epoch_num = training_data[job.name][job.gpu_num]['epoch_num']
+                job.epoch_time = training_data[job.name][job.gpu_num]['epoch_time']
+                remain_gpu_nums -= 1
             for job in job_group:
-                job.gpu_num = math.floor(job.gpu_num / current_group_all_gpu * gpu_nums)
-            current_group_all_gpu = sum([job.gpu_num for job in job_group])
-            # 如果当前分组的实际GPU总和不等于总资源数，则随机将剩余的GPU数量一一给到当前分组的任一JOB:
-            if current_group_all_gpu != gpu_nums:
-                remain_gpu_nums = gpu_nums - current_group_all_gpu
-                while remain_gpu_nums:
-                    index = random.choice(range(len(job_group)))
-                    job_group[index].gpu_num += 1
-                    remain_gpu_nums -= 1
+                job.completion_time = job.epoch_num * job.epoch_time
+            job_group.sort(key=lambda j: j.completion_time)
+
+        for i in range(len(job_group_list) - 1):
+            current_group = job_group_list[i]
+            next_group = job_group_list[i + 1]
+            current_group_time_piece = []
+            max_completion_time = current_group[-1].completion_time
+            for j in current_group:
+                time_piece = max_completion_time - j.epoch_num * j.epoch_time
+                if time_piece > 0:
+                    current_group_time_piece.append([time_piece, j.gpu_num])
+            if len(current_group_time_piece) > 0:
+                tp_index = list(range(0, len(current_group_time_piece)))
+                ng_index = list(range(0, len(next_group)))
+                ng_index.sort(reverse=True)
+                allocation_list = list(zip(tp_index, ng_index))
+                for a in allocation_list:
+                    # 时间片
+                    tp = current_group_time_piece[a[0]][0]
+                    # 释放的GPU数量
+                    jg = current_group_time_piece[a[0]][1]
+                    # JOB
+                    jb = next_group[a[1]]
+                    # 这个JOB在上面释放的GPU数量下的epoch时间
+                    et = training_data[jb.name][jg]['epoch_time']
+                    # 时间片整除epoch时间得到可提前运行的epoch数量，这个数量不超过JOB原来的epoch数量
+                    re = int(tp // et) if int(tp // et) < jb.epoch_num else jb.epoch_num
+                    # 从JOB已有的epoch数量扣除提前运行的epoch数量
+                    jb.epoch_num -= re
+                    jb.completion_time = jb.epoch_num * jb.epoch_time
+                    individual.allocation += f'[{round(tp, 3)}-{jg}-{jb.name}-{et}-{re}]'
+                # 重新组织下个分组的信息
+                next_group.sort(key=lambda j: j.completion_time)
 
         individual.solution = job_group_list
         # 计算当前个体调度方案的完成时间，它等于调度方案当中每个分组的最长完成时间之和:
-        completion_time = 0
+        all_completion_time = 0
         for job_group in job_group_list:
             group_time = 0
             for job in job_group:
-                # 如果出现了不可能的GPU数量，则该分组的完成时间直接为无穷大，相当于舍弃当前调度方案:
-                # TODO:可能需要有更好的GPU分配方案。
-                job_training_time = training_data[job.name].get(job.gpu_num, float('inf'))
-                if job_training_time > group_time:
-                    group_time = job_training_time
-            completion_time += group_time
+                job.completion_time = round(job.completion_time / 60)
+                if job.completion_time > group_time:
+                    group_time = job.completion_time
+            all_completion_time += group_time
 
-        individual.completion_time = completion_time
+        individual.all_completion_time = all_completion_time
 
 
 def selection(group: List[Individual]) -> List[Individual]:
@@ -82,21 +121,21 @@ def selection(group: List[Individual]) -> List[Individual]:
     :return: 返回一个新的个体种群，这样后续的修改不会影响原始种群。
     """
 
-    def adaptability_func(completion_time: int) -> float:
+    def adaptability_func(all_completion_time: int) -> float:
         """
         计算个体适应度。
 
-        :param completion_time: 个体所表示的调度方案的总完成时间。
+        :param all_completion_time: 个体所表示的调度方案的总完成时间。
         :return: 总完成时间的倒数，即总完成时间越少，个体适应度越大。
         """
-        return 1 / completion_time
+        return 1 / all_completion_time
 
     adaptability_list = []
     all_adaptability = 0
 
     for individual in group:
         # 计算个体适应度:
-        adaptability = adaptability_func(individual.completion_time)
+        adaptability = adaptability_func(individual.all_completion_time)
         # 记录个体适应度:
         adaptability_list.append(adaptability)
         # 累加个体适应度:
@@ -127,30 +166,27 @@ def cross_over(group: List[Individual]):
 
     # 生成一个随机非重复的数组索引数组:
     cross_orders = random.sample(list(range(len(group))), len(group))
-    # 两两一组，为每一个个体分配交叉个体:
+    # 两两一组，即为每一个个体分配交叉个体:
     cross_couples = [(cross_orders[i], cross_orders[i + 1]) for i in range(0, len(cross_orders), 2)]
     job_num = len(group[0].orders)
-    # 按照分组，两两进行调度方案当中的顺序编码和GPU数量编码交叉操作:
+    # 按照分组，两两进行调度方案当中的顺序编码交叉操作:
     for cross_couple in cross_couples:
-        fos, fgs = group[cross_couple[0]].orders, group[cross_couple[0]].gpus
-        sos, sgs = group[cross_couple[1]].orders, group[cross_couple[1]].gpus
+        fos = group[cross_couple[0]].orders
+        sos = group[cross_couple[1]].orders
 
         cross_point = random.choice(list(range(1, job_num)))
         fos, sos = fos[:cross_point] + sos[cross_point:], sos[:cross_point] + fos[cross_point:]
-        cross_point = random.choice(list(range(1, job_num)))
-        fgs, sgs = fgs[:cross_point] + sgs[cross_point:], sgs[:cross_point] + fgs[cross_point:]
 
-        group[cross_couple[0]].orders, group[cross_couple[0]].gpus = fos, fgs
-        group[cross_couple[1]].orders, group[cross_couple[1]].gpus = sos, sgs
+        group[cross_couple[0]].orders = fos
+        group[cross_couple[1]].orders = sos
 
 
-def mutation_process(group: List[Individual], job_orders: List[int], job_gpus: List[int]):
+def mutation_process(group: List[Individual], job_orders: List[int]):
     """
     变异过程，注意基因变异时，不会变异回原来的选项。
 
     :param group: 种群数组。
     :param job_orders: JOB可能顺序数组。
-    :param job_gpus: JOB可用GPU数组。
     :return: 直接对原数组对象进行修改，不返回新数组。
     """
 
@@ -168,14 +204,12 @@ def mutation_process(group: List[Individual], job_orders: List[int], job_gpus: L
 
     job_num = len(group[0].orders)
     for individual in group:
-        ios, igs = individual.orders, individual.gpus
+        ios = individual.orders
 
         mutation_point = random.choice(list(range(1, job_num + 1)))
         ios[mutation_point - 1] = mutation(ios[mutation_point - 1], job_orders[:])
-        mutation_point = random.choice(list(range(1, job_num + 1)))
-        igs[mutation_point - 1] = mutation(igs[mutation_point - 1], job_gpus[:])
 
-        individual.orders, individual.gpus = ios, igs
+        individual.orders = ios
 
 
 def preferential_admission(origin_group: List[Individual], change_group: List[Individual]) -> List[Individual]:
@@ -186,4 +220,4 @@ def preferential_admission(origin_group: List[Individual], change_group: List[In
     :param change_group: 演化种群。
     :return: 择优后的种群。
     """
-    return sorted(origin_group + change_group, key=lambda i: i.completion_time)[:len(origin_group)]
+    return sorted(origin_group + change_group, key=lambda i: i.all_completion_time)[:len(origin_group)]
