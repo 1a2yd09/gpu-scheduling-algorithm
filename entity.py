@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List
 
 
 @dataclass
@@ -13,6 +15,7 @@ class Job:
     epoch_num: int
     epoch_time: float
     completion_time: float = 0
+    after_job: Job = None
 
 
 @dataclass

@@ -21,7 +21,8 @@ def init_individual(job_nums: int, job_orders: List[int]) -> Individual:
 def calculation_process(job_names: List[str],
                         gpu_nums: int,
                         group: List[Individual],
-                        training_data: Dict[str, Dict[int, Dict]]):
+                        training_data: Dict[str, Dict[int, Dict]],
+                        is_allocation: bool):
     """
     计算个体当中的“实际”调度方案以及对应的完成时间。
     1.首先为每个JOB分配至少一个GPU，然后将剩余的GPU数量逐一分配给当前完成时间最长的JOB。
@@ -49,14 +50,24 @@ def calculation_process(job_names: List[str],
                                 training_data[z[0]][1]['epoch_num'],
                                 training_data[z[0]][1]['epoch_time']))
         # 将JOB对象按照顺序进行排序，然后按照顺序进行分组，即相同顺序的JOB为一组:
-        job_list = sorted(job_list, key=lambda j: j.order)
-        job_group_list = [list(g) for k, g in itertools.groupby(job_list, key=lambda j: j.order)]
+        # TODO: 相同顺序是否按照执行时间排序
+        job_list = sorted(job_list, key=lambda j: (j.order, j.epoch_time))
+        group_list = [list(g) for k, g in itertools.groupby(job_list, key=lambda j: j.order)]
+        job_group_list = []
+        for job_group in group_list:
+            if len(job_group) <= gpu_nums:
+                job_group_list.append(job_group)
+            else:
+                # 如果分组的数量大于资源总数，将该分组拆分成多个小的分组
+                cut_job_group = [job_group[i:i + gpu_nums] for i in range(0, len(job_group), gpu_nums)]
+                for i in cut_job_group:
+                    job_group_list.append(i)
         # 将剩余的GPU数量逐一分配给当前完成时间最长的JOB:
         for job_group in job_group_list:
             # 获取剩余的GPU数量:
             remain_gpu_nums = gpu_nums - len(job_group)
             # 逐一分配给当前完成时间最长的JOB:
-            while remain_gpu_nums:
+            while remain_gpu_nums > 0:
                 job_group.sort(key=lambda j: j.epoch_num * j.epoch_time)
                 job = job_group[-1]
                 job.gpu_num += 1
@@ -67,37 +78,40 @@ def calculation_process(job_names: List[str],
                 job.completion_time = job.epoch_num * job.epoch_time
             job_group.sort(key=lambda j: j.completion_time)
 
-        for i in range(len(job_group_list) - 1):
-            current_group = job_group_list[i]
-            next_group = job_group_list[i + 1]
-            current_group_time_piece = []
-            max_completion_time = current_group[-1].completion_time
-            for j in current_group:
-                time_piece = max_completion_time - j.epoch_num * j.epoch_time
-                if time_piece > 0:
-                    current_group_time_piece.append([time_piece, j.gpu_num])
-            if len(current_group_time_piece) > 0:
-                tp_index = list(range(0, len(current_group_time_piece)))
-                ng_index = list(range(0, len(next_group)))
-                ng_index.sort(reverse=True)
-                allocation_list = list(zip(tp_index, ng_index))
-                for a in allocation_list:
-                    # 时间片
-                    tp = current_group_time_piece[a[0]][0]
-                    # 释放的GPU数量
-                    jg = current_group_time_piece[a[0]][1]
-                    # JOB
-                    jb = next_group[a[1]]
-                    # 这个JOB在上面释放的GPU数量下的epoch时间
-                    et = training_data[jb.name][jg]['epoch_time']
-                    # 时间片整除epoch时间得到可提前运行的epoch数量，这个数量不超过JOB原来的epoch数量
-                    re = int(tp // et) if int(tp // et) < jb.epoch_num else jb.epoch_num
-                    # 从JOB已有的epoch数量扣除提前运行的epoch数量
-                    jb.epoch_num -= re
-                    jb.completion_time = jb.epoch_num * jb.epoch_time
-                    individual.allocation += f'[{round(tp, 3)}-{jg}-{jb.name}-{et}-{re}]'
-                # 重新组织下个分组的信息
-                next_group.sort(key=lambda j: j.completion_time)
+        if is_allocation:
+            for i in range(len(job_group_list) - 1):
+                current_group = job_group_list[i]
+                next_group = job_group_list[i + 1]
+                current_group_time_piece = []
+                max_completion_time = current_group[-1].completion_time
+                for j in current_group:
+                    time_piece = max_completion_time - j.epoch_num * j.epoch_time
+                    if time_piece > 0:
+                        current_group_time_piece.append([time_piece, j.gpu_num, j])
+                if len(current_group_time_piece) > 0:
+                    tp_index = list(range(0, len(current_group_time_piece)))
+                    ng_index = list(range(0, len(next_group)))
+                    ng_index.sort(reverse=True)
+                    allocation_list = list(zip(tp_index, ng_index))
+                    for a in allocation_list:
+                        # 时间片
+                        tp = current_group_time_piece[a[0]][0]
+                        # 释放的GPU数量
+                        jg = current_group_time_piece[a[0]][1]
+                        # JOB
+                        jb = next_group[a[1]]
+                        # 这个JOB在上面释放的GPU数量下的epoch时间
+                        et = training_data[jb.name][jg]['epoch_time']
+                        # 时间片整除epoch时间得到可提前运行的epoch数量，这个数量不超过JOB原来的epoch数量
+                        re = int(tp // et) if int(tp // et) < jb.epoch_num else jb.epoch_num
+                        # 从JOB已有的epoch数量扣除提前运行的epoch数量
+                        jb.epoch_num -= re
+                        jb.completion_time = jb.epoch_num * jb.epoch_time
+                        # individual.allocation += f'[{round(tp, 3)}-{jg}-{jb.name}-{et}-{re}]'
+                        current_jb = current_group_time_piece[a[0]][2]
+                        current_jb.after_job = Job(jb.name, jb.order, jg, re, et, round(re * et / 60))
+                    # 重新组织下个分组的信息
+                    next_group.sort(key=lambda j: j.completion_time)
 
         individual.solution = job_group_list
         # 计算当前个体调度方案的完成时间，它等于调度方案当中每个分组的最长完成时间之和:
