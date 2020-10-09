@@ -5,6 +5,7 @@ import random
 from typing import List, Dict, Any
 
 from entity import Individual, Job
+from experiment import utilization_rate
 
 
 def init_individual(job_nums: int, job_orders: List[int]) -> Individual:
@@ -235,3 +236,49 @@ def preferential_admission(origin_group: List[Individual], change_group: List[In
     :return: 择优后的种群。
     """
     return sorted(origin_group + change_group, key=lambda i: i.all_completion_time)[:len(origin_group)]
+
+
+def ga_execution(job_names: List[str],
+                 gpu_nums: int,
+                 td: Dict[str, Dict[int, Dict[str, Any]]],
+                 args):
+    """
+    遗传算法过程。
+
+    :param job_names: JOB名称数组。
+    :param gpu_nums: 最大可用GPU数量。
+    :param td: 记录了epoch数量和时间的数据字典。
+    :param args: 运行参数。
+    """
+
+    job_nums = len(job_names)
+    job_orders = list(range(1, job_nums + 1))
+
+    new_group = [init_individual(job_nums, job_orders) for _ in range(args.individual_nums)]
+    calculation_process(job_names, gpu_nums, new_group, td, args.allocation)
+
+    for _ in range(args.iteration_times):
+        # 注意选择过程返回的是一个和原始个体信息相同但ID不同的个体，这样后续对个体的修改不会影响到原始种群个体:
+        after_group = selection(new_group)
+        cross_over(after_group)
+        mutation_process(after_group, job_orders, job_nums)
+        # 交叉、变异后个体信息产生变化，需要重新计算个体适应度:
+        calculation_process(job_names, gpu_nums, after_group, td, args.allocation)
+        new_group = preferential_admission(new_group, after_group)
+
+    optimum_individual = new_group[0]
+    optimum_solution = optimum_individual.solution
+    optimum_time = optimum_individual.all_completion_time
+    print('=' * 100)
+    print(f'遗传算法执行时间: {round(optimum_time / 60)}minutes.')
+    print(f'遗传算法利用率: {utilization_rate(optimum_solution, optimum_time, gpu_nums)}%.')
+    print('遗传算法调度方案:')
+    print('-' * 100)
+    for jg in optimum_solution:
+        for jb in jg:
+            jb.completion_time = round(jb.completion_time, 3)
+            if jb.after_job:
+                jb.after_job.completion_time = round(jb.after_job.completion_time, 3)
+            print(jb)
+        print('-' * 100)
+    print('=' * 100)
