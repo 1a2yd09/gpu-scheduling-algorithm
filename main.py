@@ -9,16 +9,19 @@ parser.add_argument('-i', '--iteration-times', default=1000, type=int)
 parser.add_argument('-g', '--gpu-nums', default=8, type=int)
 parser.add_argument('-n', '--individual-nums', default=50, type=int)
 parser.add_argument('-a', '--allocation', action='store_true')
+parser.add_argument('-s', '--image', action='store_true')
 args = parser.parse_args()
 
-job_names = ['alexnet', 'resnet50', 'resnext50', 'seresnet101', 'googlenet', 'vgg16', 'densenet201']
-
-gpu_nums = args.gpu_nums
-job_gpus = list(range(1, gpu_nums + 1))
-td = obtaining_training_data(job_names, job_gpus)
+image_names = ['alexnet', 'resnet50', 'resnext50', 'seresnet101', 'googlenet', 'vgg16', 'densenet201']
+action_names = ['tsn', 'tsm', 'slowonly', 'slowfast', 'r2plus1d', 'i3d']
 
 
 def main():
+    job_names = image_names if args.image else action_names
+    gpu_nums = args.gpu_nums
+    job_gpus = list(range(1, gpu_nums + 1))
+    td = obtaining_training_data(job_names, job_gpus)
+
     sequential_execution(job_names, gpu_nums, td)
 
     parallel_execution(job_names, gpu_nums, td)

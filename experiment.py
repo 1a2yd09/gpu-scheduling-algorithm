@@ -98,6 +98,7 @@ def parallel_execution(job_names: List[str],
         job_list.sort(key=lambda j: j.completion_time)
         all_completion_time = job_list[-1].completion_time
         print('=' * 100)
+        print('完成时间分配原则:')
         print(f'并行执行时间: {round(all_completion_time / 60)}minutes.')
         print(f'并行利用率: {utilization_rate([job_list], all_completion_time, gpu_nums)}%.')
         print('并行解决方案:')
@@ -120,6 +121,7 @@ def parallel_execution(job_names: List[str],
         for jgd in job_group_list:
             new_job_group_list.append(jgd['job_group'])
         print('=' * 100)
+        print('拼接时间分配原则:')
         print(f'并行执行时间: {round(completion_time / 60)}minutes.')
         unused_resource = 0
         for jgd in job_group_list:
