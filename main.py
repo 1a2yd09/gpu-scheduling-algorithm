@@ -19,8 +19,7 @@ action_names = ['tsn', 'tsm', 'slowonly', 'slowfast', 'r2plus1d', 'i3d']
 def main():
     job_names = image_names if args.image else action_names
     gpu_nums = args.gpu_nums
-    job_gpus = list(range(1, gpu_nums + 1))
-    td = obtaining_training_data(job_names, job_gpus)
+    td = obtaining_training_data(job_names, gpu_nums)
 
     sequential_execution(job_names, gpu_nums, td)
 

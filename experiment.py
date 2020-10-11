@@ -41,22 +41,21 @@ def sequential_execution(job_names: List[str],
 
     :param job_names: JOB名称数组。
     :param gpu_nums: 最大可用GPU数量。
-    :param training_data: 记录了epoch次数和时间的数据字典。
+    :param training_data: 训练数据。
     """
     job_list = []
+    all_completion_time = 0
     for i in range(len(job_names)):
-        # JOB按顺序并按照最大可用GPU数量进行训练:
+        # JOB按顺序并分配最大可用GPU数量进行训练:
         job = Job(job_names[i],
                   i + 1,
                   gpu_nums,
                   training_data[job_names[i]][gpu_nums]['epoch_num'],
                   training_data[job_names[i]][gpu_nums]['epoch_time'])
         job.completion_time = job.epoch_num * job.epoch_time
-        job_list.append(job)
-    # 顺序执行的总完成时间等于每个JOB的完成时间之和:
-    all_completion_time = 0
-    for job in job_list:
+        # 顺序执行的总完成时间等于每个JOB的完成时间之和:
         all_completion_time += job.completion_time
+        job_list.append(job)
 
     print('=' * 100)
     print(f'顺序执行时间: {round(all_completion_time / 60)}minutes.')
@@ -83,8 +82,8 @@ def parallel_execution(job_names: List[str],
         job = Job(job_name, 1, 1, training_data[job_name][1]['epoch_num'], training_data[job_name][1]['epoch_time'])
         job.completion_time = job.epoch_num * job.epoch_time
         job_list.append(job)
-    # 如果资源总数大于等于JOB数量，则所有JOB一次性执行完毕:
     if len(job_names) <= gpu_nums:
+        # 如果资源总数大于等于JOB数量，则所有JOB一次性执行完毕:
         remain_gpu_nums = gpu_nums - len(job_list)
         while remain_gpu_nums > 0:
             # 按照当前完成时间大小分配原则分配剩余的资源:
@@ -107,6 +106,7 @@ def parallel_execution(job_names: List[str],
             print(job)
         print('=' * 100)
     else:
+        # 如果资源总数小于JOB数量，则所有JOB人为进行分配:
         job_list.sort(key=lambda j: j.completion_time, reverse=True)
         job_group_list = []
         for i in range(gpu_nums):

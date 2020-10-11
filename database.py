@@ -4,13 +4,13 @@ from typing import List, Dict, Any
 import mysql.connector
 
 
-def obtaining_training_data(job_names: List[str], job_gpus: List[int]) -> Dict[str, Dict[int, Dict[str, Any]]]:
+def obtaining_training_data(job_names: List[str], gpu_nums: int) -> Dict[str, Dict[int, Dict[str, Any]]]:
     """
-    从数据库当中获取先前记录的JOB训练时间。
+    从数据库当中获取训练数据。
 
-    :param job_names: JOB名称。
-    :param job_gpus: JOB可用的GPU数量。
-    :return: 返回一个可以根据JOB名称以及GPU数量来获取在指定GPU数量下JOB的epoch时间以及epoch次数的字典。
+    :param job_names: JOB名称数组。
+    :param gpu_nums: JOB最大可用GPU数目。
+    :return: 返回一个可以根据JOB名称以及GPU数量来获取指定训练数据的集合。
     """
 
     cp = configparser.ConfigParser()
@@ -21,16 +21,16 @@ def obtaining_training_data(job_names: List[str], job_gpus: List[int]) -> Dict[s
                                    database=cp['debug']['database'])
     cursor = conn.cursor()
 
-    jobs_training_time = {}
+    job_data = {}
     for job_name in job_names:
-        jobs_training_time.setdefault(job_name, {})
-        for job_gpu in job_gpus:
+        job_data.setdefault(job_name, {})
+        for job_gpu in range(1, gpu_nums + 1):
             cursor.execute('SELECT epoch_num, epoch_time FROM training_times WHERE job_name=%s AND gpu_num=%s',
                            [job_name, job_gpu])
-            ret_value = cursor.fetchone()
-            jobs_training_time[job_name][job_gpu] = {'epoch_num': ret_value[0], 'epoch_time': ret_value[1]}
+            value = cursor.fetchone()
+            job_data[job_name][job_gpu] = {'epoch_num': value[0], 'epoch_time': value[1]}
 
     cursor.close()
     conn.close()
 
-    return jobs_training_time
+    return job_data
