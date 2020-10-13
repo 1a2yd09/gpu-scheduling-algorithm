@@ -87,6 +87,7 @@ def cal_individual_plan(individual: Individual,
                     nrs.add_job(job)
                     new_job = Job(job.name, job.order, cas.gpu_num, epoch_num, epoch_time, epoch_num * epoch_time)
                     cas.add_job(new_job)
+                # TODO: 感觉还是得把剩余时间的计算单独拿出来，不然这些不同的arrange之间会有重复操作。
                 next_batch.arrange_batch()
                 current_batch.arrange_batch()
 
