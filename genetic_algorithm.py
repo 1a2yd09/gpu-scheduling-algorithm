@@ -8,8 +8,7 @@ from entity import Individual
 
 
 def init_individual(job_names: List[str]) -> Individual:
-    job_orders = list(range(1, len(job_names) + 1))
-    return Individual([random.choice(job_orders) for _ in range(len(job_names))])
+    return Individual([random.choice(range(1, len(job_names) + 1)) for _ in range(len(job_names))])
 
 
 def selection(group: List[Individual]) -> List[Individual]:
@@ -17,12 +16,9 @@ def selection(group: List[Individual]) -> List[Individual]:
         return 1 / total_time
 
     adaptability_list = []
-    all_adaptability = 0
-
     for individual in group:
-        adaptability = adaptability_func(individual.plan.total_time)
-        adaptability_list.append(adaptability)
-        all_adaptability += adaptability
+        adaptability_list.append(adaptability_func(individual.plan.total_time))
+    all_adaptability = sum(adaptability_list)
 
     isp = [a / all_adaptability for a in adaptability_list]
     cp = list(itertools.accumulate(isp))

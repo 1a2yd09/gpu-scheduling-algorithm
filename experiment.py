@@ -1,31 +1,41 @@
 import itertools
 from typing import List, Dict
 
-from entity import Job, TrainingData, TimeSlice, Plan, Individual
+from entity import Job, TrainingData, TimeSlice, Plan, Individual, Batch
 from genetic_algorithm import init_individual, selection, cross_over, mutation_process, preferential_admission
 
 
-def init_job_list(job_names: List[str],
-                  job_orders: List[int],
-                  job_gpus: List[int],
-                  data: Dict[str, Dict[int, TrainingData]]) -> List[Job]:
+def get_job_list(job_names: List[str],
+                 job_orders: List[int],
+                 job_gpus: List[int],
+                 data: Dict[str, Dict[int, TrainingData]]) -> List[Job]:
     job_list = []
     for job_name, job_order, gpu_num in zip(job_names, job_orders, job_gpus):
-        job = Job(job_name, job_order, gpu_num, data[job_name][gpu_num].epoch_num, data[job_name][gpu_num].epoch_time)
-        job.cal_time()
-        job_list.append(job)
+        job_epoch_num = data[job_name][gpu_num].epoch_num
+        job_epoch_time = data[job_name][gpu_num].epoch_time
+        job_list.append(Job(name=job_name,
+                            order=job_order,
+                            gpu_num=gpu_num,
+                            epoch_num=job_epoch_num,
+                            epoch_time=job_epoch_time,
+                            completion_time=job_epoch_num * job_epoch_time))
     job_list.sort(key=lambda j: (j.order, j.completion_time))
     return job_list
 
 
-def init_plan(final_group_list: List[List[Job]], max_gpu_num: int) -> Plan:
-    plan = []
-    for group in final_group_list:
+def get_plan(group_list: List[List[Job]],
+             max_gpu_num: int) -> Plan:
+    batch_list = []
+    for job_group in group_list:
         slice_list = []
-        for job in group:
-            slice_list.append(TimeSlice([job], job.gpu_num, job.completion_time))
-        plan.append(slice_list)
-    return Plan(plan, max_gpu_num)
+        for job in job_group:
+            slice_list.append(TimeSlice(job_list=[job],
+                                        gpu_num=job.gpu_num))
+        batch_list.append(Batch(slice_list=slice_list))
+    plan = Plan(plan=batch_list,
+                max_gpu_num=max_gpu_num)
+    plan.arrange_plan()
+    return plan
 
 
 def maximum_allocation(max_gpu_num: int,
@@ -44,7 +54,7 @@ def cal_individual_plan(individual: Individual,
                         job_names: List[str],
                         data: Dict[str, Dict[int, TrainingData]],
                         used_slice: bool):
-    job_list = init_job_list(job_names, individual.orders, [1] * len(job_names), data)
+    job_list = get_job_list(job_names, individual.orders, [1] * len(job_names), data)
     group_list = [list(g) for k, g in itertools.groupby(job_list, key=lambda j: j.order)]
     final_group_list = []
     for group in group_list:
@@ -56,53 +66,52 @@ def cal_individual_plan(individual: Individual,
             for cg in cut_group_list:
                 final_group_list.append(cg)
 
-    individual.plan = init_plan(final_group_list, max_gpu_num)
+    individual.plan = get_plan(final_group_list, max_gpu_num)
 
     if used_slice:
         for i in range(len(individual.plan.plan) - 1):
-            current_slice_list = individual.plan.plan[i]
-            max_slice = max(current_slice_list, key=lambda s: s.actual_length)
+            current_batch = individual.plan.plan[i]
             available_slice_list = []
-            for ts in current_slice_list:
-                ts.cal_remain_length(max_slice)
+            for ts in current_batch.slice_list:
                 if ts.remain_length > 0:
                     available_slice_list.append(ts)
             if len(available_slice_list) > 0:
-                next_slice_list = sorted(individual.plan.plan[i + 1], key=lambda s: s.actual_length, reverse=True)
+                next_batch = individual.plan.plan[i + 1]
                 # TODO: 可以考虑时间片长短和占有的GPU数目之间的关系来分配。
-                for cas, ns in zip(available_slice_list, next_slice_list):
-                    job = ns.job_list.pop()
+                for cas, nrs in zip(available_slice_list, next_batch.get_reverse_slice_list()):
+                    job = nrs.pop_job()
                     epoch_time = data[job.name][cas.gpu_num].epoch_time
-                    reduce_epoch_num = int(cas.remain_length // epoch_time)
-                    reduce_epoch_num = reduce_epoch_num if reduce_epoch_num < job.epoch_num else job.epoch_num
-                    job.reduce_epoch_num(reduce_epoch_num)
-                    ns.add_job(job)
-                    new_job = Job(job.name, job.order, cas.gpu_num, reduce_epoch_num, epoch_time)
-                    new_job.cal_time()
+                    epoch_num = int(cas.remain_length // epoch_time)
+                    epoch_num = epoch_num if epoch_num < job.epoch_num else job.epoch_num
+                    job.reduce_epoch_num(epoch_num)
+                    nrs.add_job(job)
+                    new_job = Job(job.name, job.order, cas.gpu_num, epoch_num, epoch_time, epoch_num * epoch_time)
                     cas.add_job(new_job)
+                next_batch.arrange_batch()
+                current_batch.arrange_batch()
 
-    individual.plan.cal_time()
+    individual.plan.arrange_plan()
 
 
 def sequential_execution(job_names: List[str],
                          max_gpu_num: int,
                          data: Dict[str, Dict[int, TrainingData]]):
-    job_list = init_job_list(job_names, list(range(1, len(job_names) + 1)), [max_gpu_num] * len(job_names), data)
+    job_list = get_job_list(job_names, list(range(1, len(job_names) + 1)), [max_gpu_num] * len(job_names), data)
     final_group_list = []
     for job in job_list:
         final_group_list.append([job])
 
-    plan = init_plan(final_group_list, max_gpu_num)
+    plan = get_plan(final_group_list, max_gpu_num)
     plan.print_plan()
 
 
 def parallel_execution(job_names: List[str],
                        max_gpu_num: int,
                        data: Dict[str, Dict[int, TrainingData]]):
-    job_list = init_job_list(job_names, [1] * len(job_names), [1] * len(job_names), data)
+    job_list = get_job_list(job_names, [1] * len(job_names), [1] * len(job_names), data)
     if max_gpu_num > len(job_list):
         maximum_allocation(max_gpu_num, job_list, data)
-        plan = init_plan([job_list], max_gpu_num)
+        plan = get_plan([job_list], max_gpu_num)
     else:
         job_list.sort(key=lambda j: j.completion_time, reverse=True)
         slice_list = []
@@ -111,7 +120,9 @@ def parallel_execution(job_names: List[str],
         for job in job_list[max_gpu_num:]:
             minimum_slice = min(slice_list, key=lambda s: s.actual_length)
             minimum_slice.add_job(job)
-        plan = Plan([slice_list], max_gpu_num)
+        batch = Batch(slice_list)
+        plan = Plan([batch], max_gpu_num)
+        plan.arrange_plan()
     plan.print_plan()
 
 
@@ -119,7 +130,7 @@ def optimus_execution(job_names: List[str],
                       max_gpu_num: int,
                       data: Dict[str, Dict[int, TrainingData]]):
     if max_gpu_num >= len(job_names):
-        job_list = init_job_list(job_names, [1] * len(job_names), [1] * len(job_names), data)
+        job_list = get_job_list(job_names, [1] * len(job_names), [1] * len(job_names), data)
         remain_gpu_num = max_gpu_num - len(job_list)
         while remain_gpu_num > 0:
             utility_list = []
@@ -131,7 +142,7 @@ def optimus_execution(job_names: List[str],
             job.add_gpu(1, data)
             remain_gpu_num -= 1
         job_list.sort(key=lambda j: j.completion_time)
-        plan = init_plan([job_list], max_gpu_num)
+        plan = get_plan([job_list], max_gpu_num)
         plan.print_plan()
 
 
