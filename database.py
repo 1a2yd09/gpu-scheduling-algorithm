@@ -7,14 +7,6 @@ from entity import TrainingData
 
 
 def get_training_data(job_names: List[str], max_gpu_num: int) -> Dict[str, Dict[int, TrainingData]]:
-    """
-    从数据库当中获取训练数据。
-
-    :param job_names: JOB名称数组。
-    :param max_gpu_num: JOB最大可用GPU数目。
-    :return: 返回一个可以根据JOB名称以及GPU数量来获取指定训练数据的集合。
-    """
-
     cp = configparser.ConfigParser()
     cp.read('./database_config.ini', encoding='utf-8')
 

@@ -49,7 +49,9 @@ class TimeSlice:
 @dataclass
 class Plan:
     plan: List[List[TimeSlice]] = None
+    max_gpu_num: int = 0
     total_time: float = 0
+    utilization_rate: float = 0
 
     def cal_time(self):
         self.total_time = 0
@@ -64,15 +66,27 @@ class Plan:
                 ts.cal_remain_length(max_slice)
             slice_list.sort(key=lambda s: s.actual_length)
 
-    def cal_utilization_rate(self, max_gpu_num: int):
-        self.arrange_plan()
-        self.cal_time()
+    def cal_utilization_rate(self):
         unused_resource = 0
         for slice_list in self.plan:
             for ts in slice_list:
                 unused_resource += ts.remain_length * ts.gpu_num
-        used_resource = self.total_time * max_gpu_num
-        return (used_resource - unused_resource) / used_resource * 100
+        used_resource = self.total_time * self.max_gpu_num
+        self.utilization_rate = (used_resource - unused_resource) / used_resource * 100
+
+    def print_plan(self):
+        self.arrange_plan()
+        self.cal_time()
+        self.cal_utilization_rate()
+        print(f'完成时间: {round(self.total_time / 60)}minutes.')
+        print(f'利用率: {round(self.utilization_rate, 3)}%.')
+        print(f'执行方案:')
+        print('=' * 100)
+        for slice_list in self.plan:
+            for ts in slice_list:
+                print(ts)
+            print('-' * 100)
+        print('=' * 100)
 
 
 @dataclass

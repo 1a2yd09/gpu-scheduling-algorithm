@@ -2,10 +2,9 @@ import bisect
 import copy
 import itertools
 import random
-from typing import List, Dict
+from typing import List
 
-from entity import Individual, TrainingData, Plan
-from experiment import cal_individual_plan
+from entity import Individual
 
 
 def init_individual(job_names: List[str]) -> Individual:
@@ -64,25 +63,3 @@ def mutation_process(group: List[Individual], job_orders: List[int]):
 
 def preferential_admission(origin_group: List[Individual], change_group: List[Individual]) -> List[Individual]:
     return sorted(origin_group + change_group, key=lambda i: i.plan.total_time)[:len(origin_group)]
-
-
-def ga_execution(job_names: List[str],
-                 max_gpu_num: int,
-                 data: Dict[str, Dict[int, TrainingData]]) -> Plan:
-    job_nums = len(job_names)
-    job_orders = list(range(1, job_nums + 1))
-
-    new_group = [init_individual(job_names) for _ in range(50)]
-    for individual in new_group:
-        cal_individual_plan(individual, max_gpu_num, job_names, data)
-
-    for _ in range(1000):
-        after_group = selection(new_group)
-        cross_over(after_group, job_names)
-        mutation_process(after_group, job_orders)
-        # 交叉、变异后个体信息产生变化，需要重新计算个体适应度:
-        for individual in after_group:
-            cal_individual_plan(individual, max_gpu_num, job_names, data)
-        new_group = preferential_admission(new_group, after_group)
-
-    return new_group[0].plan

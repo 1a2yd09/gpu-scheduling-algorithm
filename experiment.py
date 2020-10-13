@@ -2,6 +2,7 @@ import itertools
 from typing import List, Dict
 
 from entity import Job, TrainingData, TimeSlice, Plan, Individual
+from genetic_algorithm import init_individual, selection, cross_over, mutation_process, preferential_admission
 
 
 def init_job_list(job_names: List[str],
@@ -17,14 +18,14 @@ def init_job_list(job_names: List[str],
     return job_list
 
 
-def init_plan(final_group_list: List[List[Job]]) -> Plan:
+def init_plan(final_group_list: List[List[Job]], max_gpu_num: int) -> Plan:
     plan = []
     for group in final_group_list:
         slice_list = []
         for job in group:
             slice_list.append(TimeSlice([job], job.gpu_num, job.completion_time))
         plan.append(slice_list)
-    return Plan(plan)
+    return Plan(plan, max_gpu_num)
 
 
 def maximum_allocation(max_gpu_num: int,
@@ -54,7 +55,7 @@ def cal_individual_plan(individual: Individual,
             for cg in cut_group_list:
                 final_group_list.append(cg)
 
-    individual.plan = init_plan(final_group_list)
+    individual.plan = init_plan(final_group_list, max_gpu_num)
 
     for i in range(len(individual.plan.plan) - 1):
         current_slice_list = individual.plan.plan[i]
@@ -83,22 +84,23 @@ def cal_individual_plan(individual: Individual,
 
 def sequential_execution(job_names: List[str],
                          max_gpu_num: int,
-                         data: Dict[str, Dict[int, TrainingData]]) -> Plan:
+                         data: Dict[str, Dict[int, TrainingData]]):
     job_list = init_job_list(job_names, list(range(1, len(job_names) + 1)), [max_gpu_num] * len(job_names), data)
     final_group_list = []
     for job in job_list:
         final_group_list.append([job])
 
-    return init_plan(final_group_list)
+    plan = init_plan(final_group_list, max_gpu_num)
+    plan.print_plan()
 
 
 def parallel_execution(job_names: List[str],
                        max_gpu_num: int,
-                       data: Dict[str, Dict[int, TrainingData]]) -> Plan:
+                       data: Dict[str, Dict[int, TrainingData]]):
     job_list = init_job_list(job_names, [1] * len(job_names), [1] * len(job_names), data)
     if max_gpu_num > len(job_list):
         maximum_allocation(max_gpu_num, job_list, data)
-        return init_plan([job_list])
+        plan = init_plan([job_list], max_gpu_num)
     else:
         job_list.sort(key=lambda j: j.completion_time, reverse=True)
         slice_list = []
@@ -107,12 +109,13 @@ def parallel_execution(job_names: List[str],
         for job in job_list[max_gpu_num:]:
             minimum_slice = min(slice_list, key=lambda s: s.actual_length)
             minimum_slice.add_job(job)
-        return Plan([slice_list])
+        plan = Plan([slice_list], max_gpu_num)
+    plan.print_plan()
 
 
 def optimus_execution(job_names: List[str],
                       max_gpu_num: int,
-                      data: Dict[str, Dict[int, TrainingData]]) -> Plan:
+                      data: Dict[str, Dict[int, TrainingData]]):
     if max_gpu_num >= len(job_names):
         job_list = init_job_list(job_names, [1] * len(job_names), [1] * len(job_names), data)
         remain_gpu_num = max_gpu_num - len(job_list)
@@ -126,4 +129,27 @@ def optimus_execution(job_names: List[str],
             job.add_gpu(1, data)
             remain_gpu_num -= 1
         job_list.sort(key=lambda j: j.completion_time)
-        return init_plan([job_list])
+        plan = init_plan([job_list], max_gpu_num)
+        plan.print_plan()
+
+
+def ga_execution(job_names: List[str],
+                 max_gpu_num: int,
+                 data: Dict[str, Dict[int, TrainingData]],
+                 args):
+    job_nums = len(job_names)
+    job_orders = list(range(1, job_nums + 1))
+
+    new_group = [init_individual(job_names) for _ in range(args.individual_num)]
+    for individual in new_group:
+        cal_individual_plan(individual, max_gpu_num, job_names, data)
+
+    for _ in range(args.iteration_times):
+        after_group = selection(new_group)
+        cross_over(after_group, job_names)
+        mutation_process(after_group, job_orders)
+        for individual in after_group:
+            cal_individual_plan(individual, max_gpu_num, job_names, data)
+        new_group = preferential_admission(new_group, after_group)
+
+    new_group[0].plan.print_plan()
