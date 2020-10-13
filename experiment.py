@@ -42,7 +42,8 @@ def maximum_allocation(max_gpu_num: int,
 def cal_individual_plan(individual: Individual,
                         max_gpu_num: int,
                         job_names: List[str],
-                        data: Dict[str, Dict[int, TrainingData]]):
+                        data: Dict[str, Dict[int, TrainingData]],
+                        used_slice: bool):
     job_list = init_job_list(job_names, individual.orders, [1] * len(job_names), data)
     group_list = [list(g) for k, g in itertools.groupby(job_list, key=lambda j: j.order)]
     final_group_list = []
@@ -57,27 +58,28 @@ def cal_individual_plan(individual: Individual,
 
     individual.plan = init_plan(final_group_list, max_gpu_num)
 
-    for i in range(len(individual.plan.plan) - 1):
-        current_slice_list = individual.plan.plan[i]
-        max_slice = max(current_slice_list, key=lambda s: s.actual_length)
-        available_slice_list = []
-        for ts in current_slice_list:
-            ts.cal_remain_length(max_slice)
-            if ts.remain_length > 0:
-                available_slice_list.append(ts)
-        if len(available_slice_list) > 0:
-            next_slice_list = sorted(individual.plan.plan[i + 1], key=lambda s: s.actual_length, reverse=True)
-            # TODO: 可以考虑时间片长短和占有的GPU数目之间的关系来分配。
-            for cas, ns in zip(available_slice_list, next_slice_list):
-                after_job = ns.job_list.pop()
-                epoch_time = data[after_job.name][cas.gpu_num].epoch_time
-                reduce_epoch_num = int(cas.remain_length // epoch_time)
-                reduce_epoch_num = reduce_epoch_num if reduce_epoch_num < after_job.epoch_num else after_job.epoch_num
-                after_job.reduce_epoch_num(reduce_epoch_num)
-                ns.add_job(after_job)
-                new_job = Job(after_job.name, after_job.order, cas.gpu_num, reduce_epoch_num, epoch_time)
-                new_job.cal_time()
-                cas.add_job(new_job)
+    if used_slice:
+        for i in range(len(individual.plan.plan) - 1):
+            current_slice_list = individual.plan.plan[i]
+            max_slice = max(current_slice_list, key=lambda s: s.actual_length)
+            available_slice_list = []
+            for ts in current_slice_list:
+                ts.cal_remain_length(max_slice)
+                if ts.remain_length > 0:
+                    available_slice_list.append(ts)
+            if len(available_slice_list) > 0:
+                next_slice_list = sorted(individual.plan.plan[i + 1], key=lambda s: s.actual_length, reverse=True)
+                # TODO: 可以考虑时间片长短和占有的GPU数目之间的关系来分配。
+                for cas, ns in zip(available_slice_list, next_slice_list):
+                    job = ns.job_list.pop()
+                    epoch_time = data[job.name][cas.gpu_num].epoch_time
+                    reduce_epoch_num = int(cas.remain_length // epoch_time)
+                    reduce_epoch_num = reduce_epoch_num if reduce_epoch_num < job.epoch_num else job.epoch_num
+                    job.reduce_epoch_num(reduce_epoch_num)
+                    ns.add_job(job)
+                    new_job = Job(job.name, job.order, cas.gpu_num, reduce_epoch_num, epoch_time)
+                    new_job.cal_time()
+                    cas.add_job(new_job)
 
     individual.plan.cal_time()
 
@@ -136,20 +138,21 @@ def optimus_execution(job_names: List[str],
 def ga_execution(job_names: List[str],
                  max_gpu_num: int,
                  data: Dict[str, Dict[int, TrainingData]],
-                 args):
+                 args,
+                 used_slice: bool):
     job_nums = len(job_names)
     job_orders = list(range(1, job_nums + 1))
 
     new_group = [init_individual(job_names) for _ in range(args.individual_num)]
     for individual in new_group:
-        cal_individual_plan(individual, max_gpu_num, job_names, data)
+        cal_individual_plan(individual, max_gpu_num, job_names, data, used_slice)
 
     for _ in range(args.iteration_times):
         after_group = selection(new_group)
         cross_over(after_group, job_names)
         mutation_process(after_group, job_orders)
         for individual in after_group:
-            cal_individual_plan(individual, max_gpu_num, job_names, data)
+            cal_individual_plan(individual, max_gpu_num, job_names, data, used_slice)
         new_group = preferential_admission(new_group, after_group)
 
     new_group[0].plan.print_plan()

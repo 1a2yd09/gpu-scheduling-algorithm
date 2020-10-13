@@ -7,7 +7,6 @@ parser = argparse.ArgumentParser(description='')
 parser.add_argument('-i', '--iteration-times', default=1000, type=int)
 parser.add_argument('-g', '--gpu-num', default=8, type=int)
 parser.add_argument('-n', '--individual-num', default=50, type=int)
-parser.add_argument('-a', '--allocation', action='store_true')
 parser.add_argument('-s', '--image', action='store_true')
 args = parser.parse_args()
 
@@ -26,7 +25,9 @@ def main():
 
     optimus_execution(job_names, gpu_num, data)
 
-    ga_execution(job_names, gpu_num, data, args)
+    ga_execution(job_names, gpu_num, data, args, False)
+
+    ga_execution(job_names, gpu_num, data, args, True)
 
 
 if __name__ == '__main__':
