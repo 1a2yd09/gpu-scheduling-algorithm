@@ -84,8 +84,11 @@ def cal_individual_plan(individual: Individual,
                     epoch_num = int(cas.remain_length // epoch_time)
                     epoch_num = epoch_num if epoch_num < job.epoch_num else job.epoch_num
                     job.reduce_epoch_num(epoch_num)
+                    # 这里是把唯一的时间片弹出后重新计算又返回去，所以会影响实际时间，以及批次的最大时间长度。
                     nrs.add_job(job)
                     new_job = Job(job.name, job.order, cas.gpu_num, epoch_num, epoch_time, epoch_num * epoch_time)
+                    # 为一个时间片添加JOB，只会影响这个时间片的实际时间和剩余时间，因为上述的代码逻辑，
+                    # 实际上这个批次中的最大时间片不会变化。
                     cas.add_job(new_job)
                 # TODO: 感觉还是得把剩余时间的计算单独拿出来，不然这些不同的arrange之间会有重复操作。
                 next_batch.arrange_batch()
