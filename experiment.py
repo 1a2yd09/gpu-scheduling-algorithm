@@ -109,6 +109,22 @@ def sequential_execution(job_names: List[str],
     plan.print_plan()
 
 
+def sorting_allocation(job_list: List[Job],
+                       max_gpu_num: int,
+                       reverse: bool) -> Plan:
+    job_list.sort(key=lambda j: j.completion_time, reverse=reverse)
+    slice_list = []
+    for job in job_list[:max_gpu_num]:
+        slice_list.append(TimeSlice([job], job.gpu_num, job.completion_time))
+    for job in job_list[max_gpu_num:]:
+        minimum_slice = min(slice_list, key=lambda s: s.actual_length)
+        minimum_slice.add_job(job)
+    batch = Batch(slice_list)
+    plan = Plan([batch], max_gpu_num)
+    plan.arrange_plan()
+    return plan
+
+
 def parallel_execution(job_names: List[str],
                        max_gpu_num: int,
                        data: Dict[str, Dict[int, TrainingData]]):
@@ -117,24 +133,15 @@ def parallel_execution(job_names: List[str],
         maximum_allocation(max_gpu_num, job_list, data)
         plan = get_plan([job_list], max_gpu_num)
     else:
-        job_list.sort(key=lambda j: j.completion_time, reverse=True)
-        slice_list = []
-        for job in job_list[:max_gpu_num]:
-            slice_list.append(TimeSlice([job], job.gpu_num, job.completion_time))
-        for job in job_list[max_gpu_num:]:
-            minimum_slice = min(slice_list, key=lambda s: s.actual_length)
-            minimum_slice.add_job(job)
-        batch = Batch(slice_list)
-        plan = Plan([batch], max_gpu_num)
-        plan.arrange_plan()
+        plan = sorting_allocation(job_list, max_gpu_num, True)
     plan.print_plan()
 
 
 def optimus_execution(job_names: List[str],
                       max_gpu_num: int,
                       data: Dict[str, Dict[int, TrainingData]]):
+    job_list = get_job_list(job_names, [1] * len(job_names), [1] * len(job_names), data)
     if max_gpu_num >= len(job_names):
-        job_list = get_job_list(job_names, [1] * len(job_names), [1] * len(job_names), data)
         remain_gpu_num = max_gpu_num - len(job_list)
         while remain_gpu_num > 0:
             utility_list = []
@@ -147,7 +154,9 @@ def optimus_execution(job_names: List[str],
             remain_gpu_num -= 1
         job_list.sort(key=lambda j: j.completion_time)
         plan = get_plan([job_list], max_gpu_num)
-        plan.print_plan()
+    else:
+        plan = sorting_allocation(job_list, max_gpu_num, False)
+    plan.print_plan()
 
 
 def ga_execution(job_names: List[str],
