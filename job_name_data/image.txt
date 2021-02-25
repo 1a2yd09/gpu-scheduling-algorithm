@@ -1,0 +1,6 @@
+alexnet
+resnet50
+resnext50
+seresnet101
+googlenet
+vgg16
