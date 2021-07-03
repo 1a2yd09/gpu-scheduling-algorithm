@@ -2,6 +2,10 @@
 
 综合多种调度算法给出分布式深度学习多作业在 GPU 集群上的调度次序以及资源分配方案，期望作业总体完成时间尽可能小，资源利用率尽可能高。
 
+## 论文发表
+
+- [Optimizing makespan and resource utilization for multi-DNN training in GPU cluster](https://doi.org/10.1016/j.future.2021.06.021)
+
 ## 调度算法
 
 - ☑️ 顺序调度
@@ -23,5 +27,5 @@
 
 ## 有关分布式训练导致的精度损失问题
 
-- 参考知乎回答：[如何理解深度学习分布式训练中的 large batch size 与 learning rate 的关系？](https://www.zhihu.com/question/64134994/answer/216895968)
-- 参考论文：[Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour](https://arxiv.org/abs/1706.02677)
+- 知乎：[如何理解深度学习分布式训练中的 large batch size 与 learning rate 的关系？](https://www.zhihu.com/question/64134994/answer/216895968)
+- 论文：[Accurate, Large Minibatch SGD: Training ImageNet in 1 Hour](https://arxiv.org/abs/1706.02677)
