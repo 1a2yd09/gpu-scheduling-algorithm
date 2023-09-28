@@ -5,6 +5,7 @@
 ## 论文发表
 
 - [Optimizing makespan and resource utilization for multi-DNN training in GPU cluster](https://doi.org/10.1016/j.future.2021.06.021)
+- [面向 GPU 集群的动态资源调度方法](http://dx.doi.org/10.7544/issn1000-1239.202220149)
 
 ## 调度算法
 
